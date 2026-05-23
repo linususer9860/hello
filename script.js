@@ -48,6 +48,7 @@ function renderError(message, data = {}) {
 function renderResults(data) {
     const { url, finalUrl, status, responseMs, checks } = data;
     const cards = [
+        reportHeader(finalUrl || url),
         summaryCard(url, finalUrl, status, responseMs, checks),
         httpsCard(checks.https),
         pageWeightCard(checks.pageWeight),
@@ -74,6 +75,19 @@ function renderResults(data) {
 
 function statusColor(map) {
     return { pass: '#14693a', warn: '#856404', fail: '#842029', info: '#1554b8' }[map] || '#444';
+}
+
+function reportHeader(url) {
+    const now = new Date().toLocaleString();
+    return `
+        <div class="report-toolbar">
+            <div class="report-meta">
+                <strong>SEO report</strong>
+                <span>${esc(url)} · ${esc(now)}</span>
+            </div>
+            <button type="button" class="pdf-btn" onclick="window.print()">Save as PDF</button>
+        </div>
+    `;
 }
 
 function summaryCard(url, finalUrl, status, responseMs, checks) {
