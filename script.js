@@ -50,19 +50,27 @@ function renderResults(data) {
     const cards = [
         reportHeader(finalUrl || url),
         summaryCard(url, finalUrl, status, responseMs, checks),
+        httpHeadersCard(checks.httpHeaders),
         httpsCard(checks.https),
+        redirectChainCard(checks.redirectChain),
         pageWeightCard(checks.pageWeight),
+        performanceCard(checks.performance),
         titleCard(checks.title),
         descriptionCard(checks.description),
         canonicalCard(checks.canonical),
         headingsCard(checks.headings),
         contentCard(checks.content),
+        urlStructureCard(checks.urlStructure),
         socialCard(checks.social),
         structuredDataCard(checks.structuredData),
         hreflangCard(checks.hreflang),
         technicalCard(checks.technical),
+        metaRefreshCard(checks.metaRefresh),
         faviconCard(checks.favicon),
+        pwaCard(checks.pwa),
+        feedsCard(checks.feeds),
         imagesCard(checks.images),
+        imageReachabilityCard(checks.imageReachability),
         robotsCard(checks.robots),
         sitemapCard(checks.sitemap),
         internalLinksCard(checks.internalLinks),
@@ -71,10 +79,6 @@ function renderResults(data) {
         backlinksCard(checks.backlinks),
     ];
     results.innerHTML = cards.join('');
-}
-
-function statusColor(map) {
-    return { pass: '#14693a', warn: '#856404', fail: '#842029', info: '#1554b8' }[map] || '#444';
 }
 
 function reportHeader(url) {
@@ -184,13 +188,14 @@ function headingsCard(h) {
 }
 
 function socialCard(s) {
-    const { og, twitter, ogImage } = s.value;
+    const { og, twitter, ogImage, ogImageWidth, ogImageHeight, hasOgImageDims } = s.value;
     const preview = ogImage ? `
         <div class="og-preview">
             <img src="${esc(ogImage)}" alt="OG image preview" onerror="this.style.display='none'">
             <div class="meta">
                 <strong>${esc(og['og:title'] || '(no og:title)')}</strong>
                 ${esc(og['og:description'] || '(no og:description)')}
+                ${hasOgImageDims ? `<div style="margin-top:4px;color:#777;font-size:12px;">${esc(ogImageWidth)}×${esc(ogImageHeight)}</div>` : ''}
             </div>
         </div>` : '';
     const ogRows = Object.entries(og).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
@@ -223,7 +228,7 @@ function technicalCard(t) {
 }
 
 function imagesCard(i) {
-    const { total, missingAlt, missingCount } = i.value;
+    const { total, missingAlt, missingCount, lazy, noDims, modernFormat } = i.value;
     const examples = missingAlt.length
         ? `<dl class="kv" style="margin-top:8px;"><dt>Missing alt (sample)</dt><dd>${missingAlt.map((s) => esc(s)).join('<br>')}</dd></dl>`
         : '';
@@ -234,6 +239,9 @@ function imagesCard(i) {
             <dl class="kv">
                 <dt>Total images</dt><dd>${total}</dd>
                 <dt>Missing alt</dt><dd>${missingCount}</dd>
+                <dt>Lazy-loaded</dt><dd>${lazy}</dd>
+                <dt>Missing width/height</dt><dd>${noDims}</dd>
+                <dt>Modern format (WebP/AVIF)</dt><dd>${modernFormat}</dd>
             </dl>
             ${examples}
         </div>
@@ -274,7 +282,7 @@ function pageWeightCard(p) {
 }
 
 function contentCard(c) {
-    const { words, textLength, htmlLength, ratio } = c.value;
+    const { words, textLength, htmlLength, ratio, readability, firstParagraph } = c.value;
     return `
         <div class="card">
             <h2>Content depth ${badge(c.status)}</h2>
@@ -284,7 +292,11 @@ function contentCard(c) {
                 <dt>Visible text</dt><dd>${textLength.toLocaleString()} chars</dd>
                 <dt>HTML size</dt><dd>${htmlLength.toLocaleString()} chars</dd>
                 <dt>Text-to-HTML</dt><dd>${(ratio * 100).toFixed(1)}%</dd>
+                <dt>Readability (Flesch)</dt><dd>${readability.score} — ${esc(readability.grade)}</dd>
+                <dt>Sentences</dt><dd>${readability.sentences.toLocaleString()}</dd>
+                <dt>First paragraph</dt><dd>${firstParagraph.words} words</dd>
             </dl>
+            ${firstParagraph.preview ? `<p class="msg" style="margin-top:8px;font-style:italic;color:#555;">"${esc(firstParagraph.preview)}${firstParagraph.preview.length >= 240 ? '…' : ''}"</p>` : ''}
         </div>
     `;
 }
@@ -364,7 +376,7 @@ function robotsCard(r) {
 }
 
 function sitemapCard(s) {
-    const { results, totalUrls, listed } = s.value;
+    const { results, totalUrls, listed, newestLastmod, lastmodAgeDays } = s.value;
     const blocks = (results || []).map((r) => {
         if (!r.ok) {
             return `<div class="kv" style="margin-top:8px;">
@@ -379,6 +391,8 @@ function sitemapCard(s) {
                 <dt>Type</dt><dd>${r.isIndex ? 'sitemap index' : 'urlset'}</dd>
                 <dt>URLs</dt><dd>${r.count}</dd>
                 ${!r.isIndex ? `<dt>Listed?</dt><dd>${r.listed ? 'yes' : 'no'}</dd>` : ''}
+                ${!r.isIndex && r.lastmodCount ? `<dt>lastmod entries</dt><dd>${r.lastmodCount}</dd>` : ''}
+                ${r.mostRecent ? `<dt>Most recent lastmod</dt><dd>${esc(r.mostRecent)}</dd>` : ''}
                 ${sample ? `<dt>Sample</dt><dd>${sample}</dd>` : ''}
             </dl>
         </div>`;
@@ -390,6 +404,7 @@ function sitemapCard(s) {
             <dl class="kv">
                 <dt>Total URLs (all sitemaps)</dt><dd>${totalUrls.toLocaleString()}</dd>
                 <dt>This URL listed</dt><dd>${listed ? 'yes' : 'no / not verified'}</dd>
+                ${newestLastmod ? `<dt>Newest lastmod</dt><dd>${esc(newestLastmod)}${lastmodAgeDays != null ? ` <span style="color:#999;">(${lastmodAgeDays} days ago)</span>` : ''}</dd>` : ''}
             </dl>
             ${blocks}
         </div>
@@ -397,7 +412,7 @@ function sitemapCard(s) {
 }
 
 function internalLinksCard(l) {
-    const { total, contextual, navigational, other, nofollow, topAnchors, generic, genericExamples } = l.value;
+    const { total, contextual, navigational, other, nofollow, topAnchors, generic, genericExamples, placeholderEmpty, placeholderHash } = l.value;
     const anchorRows = topAnchors.map((a) =>
         `<dt>${esc(a.anchor.slice(0, 60))}</dt><dd>${a.count}</dd>`).join('');
     const genericList = genericExamples.length
@@ -416,6 +431,8 @@ function internalLinksCard(l) {
                 <dt>Other</dt><dd>${other}</dd>
                 <dt>Nofollow internal</dt><dd>${nofollow}</dd>
                 <dt>Generic anchors</dt><dd>${generic}</dd>
+                <dt>Empty href ("")</dt><dd>${placeholderEmpty}</dd>
+                <dt>Placeholder href ("#")</dt><dd>${placeholderHash}</dd>
             </dl>
             ${anchorRows ? `<h3 style="font-size:14px;margin-top:14px;margin-bottom:6px;">Top anchor texts</h3><dl class="kv">${anchorRows}</dl>` : ''}
             ${genericList}
@@ -485,6 +502,161 @@ function backlinksCard(b) {
                 these tools instead:
             </p>
             <ul style="font-size:14px;padding-left:20px;line-height:1.8;">${links}</ul>
+        </div>
+    `;
+}
+
+function httpHeadersCard(h) {
+    const { xRobotsTag, hsts, xContentTypeOptions, xFrameOptions, csp, cspPresent, referrerPolicy, permissionsPolicy, server } = h.value;
+    const fmt = (v) => v ? esc(v) : '<span style="color:#bbb;">—</span>';
+    return `
+        <div class="card">
+            <h2>HTTP response headers ${badge(h.status)}</h2>
+            <p class="msg">${esc(h.message)}</p>
+            <dl class="kv">
+                <dt>X-Robots-Tag</dt><dd>${fmt(xRobotsTag)}</dd>
+                <dt>Strict-Transport-Security</dt><dd>${fmt(hsts)}</dd>
+                <dt>X-Content-Type-Options</dt><dd>${fmt(xContentTypeOptions)}</dd>
+                <dt>X-Frame-Options</dt><dd>${fmt(xFrameOptions)}</dd>
+                <dt>Content-Security-Policy</dt><dd>${cspPresent ? esc(csp) : '<span style="color:#bbb;">—</span>'}</dd>
+                <dt>Referrer-Policy</dt><dd>${fmt(referrerPolicy)}</dd>
+                <dt>Permissions-Policy</dt><dd>${fmt(permissionsPolicy)}</dd>
+                <dt>Server</dt><dd>${fmt(server)}</dd>
+            </dl>
+        </div>
+    `;
+}
+
+function redirectChainCard(r) {
+    const { hops, chain } = r.value;
+    const rows = chain.map((c, i) => {
+        const last = i === chain.length - 1;
+        const ok = c.status >= 200 && c.status < 300;
+        const redir = c.status >= 300 && c.status < 400;
+        const label = c.status || (c.error || 'err');
+        const cls = ok ? 'ok' : (redir ? 'warn' : 'bad');
+        return `<tr>
+            <td style="color:#999;font-family:monospace;">${i + 1}.</td>
+            <td><span class="status-pill ${cls}">${esc(label)}</span></td>
+            <td class="url">${esc(c.url)}${last ? ' <span style="color:#999;">(final)</span>' : ''}</td>
+        </tr>`;
+    }).join('');
+    return `
+        <div class="card">
+            <h2>Redirect chain ${badge(r.status)}</h2>
+            <p class="msg">${esc(r.message)}</p>
+            <dl class="kv">
+                <dt>Hops</dt><dd>${hops}</dd>
+                <dt>Total requests</dt><dd>${chain.length}</dd>
+            </dl>
+            ${rows ? `<table class="link-table" style="margin-top:8px;"><thead><tr><th>#</th><th>Status</th><th>URL</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+        </div>
+    `;
+}
+
+function performanceCard(p) {
+    const { hints, totalHints, blockingScripts, blockingStyles, blocking } = p.value;
+    return `
+        <div class="card">
+            <h2>Performance hints ${badge(p.status)}</h2>
+            <p class="msg">${esc(p.message)}</p>
+            <dl class="kv">
+                <dt>preconnect</dt><dd>${hints.preconnect}</dd>
+                <dt>dns-prefetch</dt><dd>${hints.dnsPrefetch}</dd>
+                <dt>preload</dt><dd>${hints.preload}</dd>
+                <dt>prefetch</dt><dd>${hints.prefetch}</dd>
+                <dt>modulepreload</dt><dd>${hints.modulepreload}</dd>
+                <dt>Total resource hints</dt><dd>${totalHints}</dd>
+                <dt>Render-blocking scripts</dt><dd>${blockingScripts}</dd>
+                <dt>Render-blocking stylesheets</dt><dd>${blockingStyles}</dd>
+                <dt>Total blocking</dt><dd>${blocking}</dd>
+            </dl>
+        </div>
+    `;
+}
+
+function urlStructureCard(u) {
+    const { length, uppercase, underscores, hyphens, params, segments } = u.value;
+    return `
+        <div class="card">
+            <h2>URL structure ${badge(u.status)}</h2>
+            <p class="msg">${esc(u.message)}</p>
+            <dl class="kv">
+                <dt>Length</dt><dd>${length} chars</dd>
+                <dt>Uppercase in path</dt><dd>${uppercase ? 'yes' : 'no'}</dd>
+                <dt>Underscores in path</dt><dd>${underscores}</dd>
+                <dt>Hyphens in path</dt><dd>${hyphens}</dd>
+                <dt>Query parameters</dt><dd>${params}</dd>
+                <dt>Path segments</dt><dd>${segments}</dd>
+            </dl>
+        </div>
+    `;
+}
+
+function metaRefreshCard(m) {
+    const { present, content, delay } = m.value;
+    return `
+        <div class="card">
+            <h2>Meta refresh ${badge(m.status)}</h2>
+            <p class="msg">${esc(m.message)}</p>
+            <dl class="kv">
+                <dt>Present</dt><dd>${present ? 'yes' : 'no'}</dd>
+                ${present ? `<dt>Content</dt><dd>${esc(content)}</dd>` : ''}
+                ${present && delay != null ? `<dt>Delay</dt><dd>${delay}s</dd>` : ''}
+            </dl>
+        </div>
+    `;
+}
+
+function pwaCard(p) {
+    const { manifest, themeColor, amp } = p.value;
+    const fmt = (v) => v ? esc(v) : '<span style="color:#bbb;">—</span>';
+    return `
+        <div class="card">
+            <h2>PWA / Mobile ${badge(p.status)}</h2>
+            <p class="msg">${esc(p.message)}</p>
+            <dl class="kv">
+                <dt>Web app manifest</dt><dd>${fmt(manifest)}</dd>
+                <dt>theme-color</dt><dd>${fmt(themeColor)}</dd>
+                <dt>AMP version</dt><dd>${fmt(amp)}</dd>
+            </dl>
+        </div>
+    `;
+}
+
+function feedsCard(f) {
+    const { feeds } = f.value;
+    const rows = feeds.map((x) =>
+        `<dt>${esc(x.type)}</dt><dd>${esc(x.href)}${x.title ? ` <span style="color:#999;">(${esc(x.title)})</span>` : ''}</dd>`
+    ).join('');
+    return `
+        <div class="card">
+            <h2>RSS / Atom feeds ${badge(f.status)}</h2>
+            <p class="msg">${esc(f.message)}</p>
+            ${rows ? `<dl class="kv">${rows}</dl>` : ''}
+        </div>
+    `;
+}
+
+function imageReachabilityCard(i) {
+    const { total, probes } = i.value;
+    const rows = probes.map((p) => {
+        const ok = p.ok;
+        const statusLabel = p.status || (p.error || 'err');
+        return `<tr>
+            <td><span class="status-pill ${ok ? 'ok' : 'bad'}">${esc(statusLabel)}</span></td>
+            <td class="url">${esc(p.url)}</td>
+        </tr>`;
+    }).join('');
+    return `
+        <div class="card">
+            <h2>Image reachability ${badge(i.status)}</h2>
+            <p class="msg">${esc(i.message)}</p>
+            <dl class="kv">
+                <dt>Total image URLs</dt><dd>${total}</dd>
+                <dt>Probed</dt><dd>${probes.length}</dd>
+            </dl>
+            ${rows ? `<table class="link-table"><thead><tr><th>Status</th><th>URL</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
         </div>
     `;
 }
