@@ -151,6 +151,46 @@ body {
 .badge-pass { background: #d6f5e1; color: #14693a; }
 .badge-warn { background: #fff3cd; color: #856404; }
 .badge-fail { background: #f8d7da; color: #842029; }
+.badge-info { background: #dde7fb; color: #1554b8; }
+
+.code-block {
+    background: #1f2330;
+    color: #d8dde6;
+    padding: 12px 14px;
+    border-radius: 6px;
+    font-family: 'SF Mono', Monaco, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: 240px;
+    overflow: auto;
+    margin: 10px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.chip {
+    display: inline-block;
+    background: #eef0f7;
+    color: #2a3142;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.card code {
+    background: #f1f2f7;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'SF Mono', Monaco, Menlo, monospace;
+    font-size: 12px;
+}
 
 .kv {
     display: grid;
