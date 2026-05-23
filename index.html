@@ -3,41 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .container {
-            text-align: center;
-            background: white;
-            padding: 60px 40px;
-            border-radius: 10px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-        }
-        h1 {
-            color: #333;
-            margin: 0;
-            font-size: 48px;
-        }
-        p {
-            color: #666;
-            margin-top: 10px;
-            font-size: 18px;
-        }
-    </style>
+    <title>SEO Checker — Audit any URL in seconds</title>
+    <meta name="description" content="Free SEO checker. Paste a URL and get a report on title, meta description, headings, canonical, Open Graph, social images, and link reachability.">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Hello World! 👋</h1>
-        <p>Welcome to your first web page deployed on Vercel</p>
-    </div>
+    <header class="hero">
+        <h1>SEO Checker</h1>
+        <p class="tagline">Paste a URL. Get a quick audit of title, headings, social tags, and links.</p>
+        <form id="check-form" class="form">
+            <input
+                id="url-input"
+                type="url"
+                name="url"
+                placeholder="https://example.com"
+                required
+                autocomplete="url"
+                autofocus
+            >
+            <button type="submit" id="submit-btn">Analyze</button>
+        </form>
+        <p class="hint">Works on any publicly reachable HTML page.</p>
+    </header>
+
+    <main id="results" class="results" aria-live="polite"></main>
+
+    <footer class="footer">
+        <p>Built with Vercel serverless functions. <a href="https://github.com/linususer9860/hello">Source</a>.</p>
+    </footer>
+
+    <script src="/script.js"></script>
 </body>
 </html>
