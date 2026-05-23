@@ -174,6 +174,8 @@ function headingsCard(h) {
         `<li><span class="lvl">H${x.level}</span>${esc(x.text || '(empty)')}</li>`
     ).join('');
     const more = h.value.headings.length > 30 ? `<li style="color:#999;font-style:italic;">…and ${h.value.headings.length - 30} more</li>` : '';
+    const matchLabel = { exact: 'exact match', similar: 'similar', different: '⚠ different topics', 'no-h1': '—', 'no-title': '—', unknown: '—' };
+    const matchColor = h.value.titleH1Match === 'different' ? '#856404' : h.value.titleH1Match === 'similar' ? '#555' : '#14693a';
     return `
         <div class="card">
             <h2>Heading structure ${badge(h.status)}</h2>
@@ -181,6 +183,7 @@ function headingsCard(h) {
             <dl class="kv">
                 <dt>H1 count</dt><dd>${h.value.h1Count}</dd>
                 <dt>Total headings</dt><dd>${h.value.total}</dd>
+                <dt>Title / H1 match</dt><dd style="color:${matchColor};">${matchLabel[h.value.titleH1Match] || esc(h.value.titleH1Match)}</dd>
             </dl>
             ${items ? `<ul class="heading-list" style="margin-top:12px;">${items}${more}</ul>` : ''}
         </div>
@@ -188,14 +191,17 @@ function headingsCard(h) {
 }
 
 function socialCard(s) {
-    const { og, twitter, ogImage, ogImageWidth, ogImageHeight, hasOgImageDims } = s.value;
+    const { og, twitter, ogImage, ogImageWidth, ogImageHeight, hasOgImageDims, ogImageTooSmall, ogImageReachable, ogImageProbeStatus } = s.value;
+    const reachPill = ogImageReachable === null ? '' : ogImageReachable
+        ? `<span class="status-pill ok">${ogImageProbeStatus}</span>`
+        : `<span class="status-pill bad">${ogImageProbeStatus || 'error'}</span>`;
     const preview = ogImage ? `
         <div class="og-preview">
             <img src="${esc(ogImage)}" alt="OG image preview" onerror="this.style.display='none'">
             <div class="meta">
                 <strong>${esc(og['og:title'] || '(no og:title)')}</strong>
                 ${esc(og['og:description'] || '(no og:description)')}
-                ${hasOgImageDims ? `<div style="margin-top:4px;color:#777;font-size:12px;">${esc(ogImageWidth)}×${esc(ogImageHeight)}</div>` : ''}
+                ${hasOgImageDims ? `<div style="margin-top:4px;color:${ogImageTooSmall ? '#856404' : '#777'};font-size:12px;">${esc(ogImageWidth)}×${esc(ogImageHeight)}${ogImageTooSmall ? ' ⚠ below 1200×630' : ''}</div>` : ''}
             </div>
         </div>` : '';
     const ogRows = Object.entries(og).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
@@ -205,14 +211,20 @@ function socialCard(s) {
             <h2>Open Graph &amp; Twitter ${badge(s.status)}</h2>
             <p class="msg">${esc(s.message)}</p>
             ${preview}
-            ${ogRows ? `<dl class="kv" style="margin-top:12px;">${ogRows}</dl>` : '<p style="color:#999;font-size:14px;">No Open Graph tags found.</p>'}
+            ${ogRows ? `<dl class="kv" style="margin-top:12px;">${ogRows}
+                ${ogImage ? `<dt>OG image reachable</dt><dd>${reachPill || '(not probed)'}</dd>` : ''}
+            </dl>` : '<p style="color:#999;font-size:14px;">No Open Graph tags found.</p>'}
             ${twRows ? `<dl class="kv" style="margin-top:12px;border-top:1px solid #eee;padding-top:12px;">${twRows}</dl>` : ''}
         </div>
     `;
 }
 
 function technicalCard(t) {
-    const { viewport, robots, charset, lang } = t.value;
+    const { viewport, robots, charset, lang, directives } = t.value;
+    const directiveEntries = directives ? Object.entries(directives) : [];
+    const directiveChips = directiveEntries.length
+        ? `<div style="margin-top:10px;"><div style="font-size:12px;color:#777;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Extended robots directives</div><div class="chips">${directiveEntries.map(([k, v]) => `<span class="chip">${esc(k)}${v !== true ? ':' + esc(String(v)) : ''}</span>`).join('')}</div></div>`
+        : '';
     return `
         <div class="card">
             <h2>Technical meta ${badge(t.status)}</h2>
@@ -223,6 +235,7 @@ function technicalCard(t) {
                 <dt>Charset</dt><dd>${esc(charset || '—')}</dd>
                 <dt>html lang</dt><dd>${esc(lang || '—')}</dd>
             </dl>
+            ${directiveChips}
         </div>
     `;
 }
@@ -412,13 +425,16 @@ function sitemapCard(s) {
 }
 
 function internalLinksCard(l) {
-    const { total, contextual, navigational, other, nofollow, topAnchors, generic, genericExamples, placeholderEmpty, placeholderHash } = l.value;
+    const { total, contextual, navigational, other, nofollow, topAnchors, generic, genericExamples, placeholderEmpty, placeholderHash, brokenFragments, brokenFragmentExamples } = l.value;
     const anchorRows = topAnchors.map((a) =>
         `<dt>${esc(a.anchor.slice(0, 60))}</dt><dd>${a.count}</dd>`).join('');
     const genericList = genericExamples.length
         ? `<dl class="kv" style="margin-top:8px;"><dt>Generic-anchor examples</dt><dd>${
             genericExamples.map((g) => `<em>"${esc(g.anchor)}"</em> → ${esc(g.url)}`).join('<br>')
         }</dd></dl>`
+        : '';
+    const brokenFragList = brokenFragmentExamples && brokenFragmentExamples.length
+        ? `<dl class="kv" style="margin-top:8px;"><dt>Broken fragments (sample)</dt><dd>${brokenFragmentExamples.map((f) => `<code>${esc(f)}</code>`).join('<br>')}</dd></dl>`
         : '';
     return `
         <div class="card">
@@ -433,9 +449,11 @@ function internalLinksCard(l) {
                 <dt>Generic anchors</dt><dd>${generic}</dd>
                 <dt>Empty href ("")</dt><dd>${placeholderEmpty}</dd>
                 <dt>Placeholder href ("#")</dt><dd>${placeholderHash}</dd>
+                <dt>Broken anchor fragments</dt><dd>${brokenFragments || 0}</dd>
             </dl>
             ${anchorRows ? `<h3 style="font-size:14px;margin-top:14px;margin-bottom:6px;">Top anchor texts</h3><dl class="kv">${anchorRows}</dl>` : ''}
             ${genericList}
+            ${brokenFragList}
         </div>
     `;
 }

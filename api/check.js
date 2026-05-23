@@ -64,7 +64,7 @@ function analyzeCanonical($, finalUrl) {
   }
 }
 
-function analyzeHeadings($) {
+function analyzeHeadings($, titleText) {
   const headings = [];
   $('h1, h2, h3, h4, h5, h6').each((_, el) => {
     const tag = el.tagName.toLowerCase();
@@ -91,10 +91,32 @@ function analyzeHeadings($) {
     status = 'warn';
     message = `One H1 found, but heading levels skipped (${skipped.map((s) => `H${s.from}→H${s.to}`).join(', ')}).`;
   }
-  return verdict(status, message, { h1Count: h1s.length, total: headings.length, headings, skipped });
+  const h1Text = h1s.length > 0 ? h1s[0].text : '';
+  let titleH1Match = !titleText ? 'no-title' : h1s.length === 0 ? 'no-h1' : 'unknown';
+  if (titleText && h1s.length > 0) {
+    const norm = (t) => t.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+    const nt = norm(titleText);
+    const nh = norm(h1Text);
+    if (nt === nh) {
+      titleH1Match = 'exact';
+    } else if (nt.includes(nh) || nh.includes(nt)) {
+      titleH1Match = 'similar';
+    } else {
+      const tw = new Set(nt.split(' ').filter(Boolean));
+      const hw = new Set(nh.split(' ').filter(Boolean));
+      const inter = [...tw].filter((w) => hw.has(w)).length;
+      const union = new Set([...tw, ...hw]).size;
+      titleH1Match = (union > 0 && inter / union >= 0.4) ? 'similar' : 'different';
+    }
+    if (titleH1Match === 'different' && status === 'pass') {
+      status = 'warn';
+      message = 'H1 and page title appear to target different topics.';
+    }
+  }
+  return verdict(status, message, { h1Count: h1s.length, total: headings.length, headings, skipped, titleH1Match });
 }
 
-function analyzeSocial($, finalUrl) {
+function analyzeSocial($, finalUrl, ogImageProbe) {
   const og = {};
   $('meta[property^="og:"]').each((_, el) => {
     const prop = $(el).attr('property');
@@ -113,6 +135,12 @@ function analyzeSocial($, finalUrl) {
   const ogImageWidth = og['og:image:width'] || '';
   const ogImageHeight = og['og:image:height'] || '';
   const hasOgImageDims = !!(ogImageWidth && ogImageHeight);
+  let ogImageTooSmall = false;
+  if (hasOgImageDims) {
+    const w = parseInt(ogImageWidth, 10);
+    const h = parseInt(ogImageHeight, 10);
+    if (!isNaN(w) && !isNaN(h) && (w < 1200 || h < 630)) ogImageTooSmall = true;
+  }
 
   const required = ['og:title', 'og:description', 'og:image', 'og:url'];
   const missing = required.filter((k) => !og[k]);
@@ -133,10 +161,41 @@ function analyzeSocial($, finalUrl) {
     message = 'OG complete, but no twitter:card defined.';
   }
 
+  const ogImageReachable = ogImageProbe ? ogImageProbe.ok : null;
+  const ogImageProbeStatus = ogImageProbe ? ogImageProbe.status : null;
+  if (ogImage && ogImageProbe && !ogImageProbe.ok) {
+    status = 'fail';
+    message = `OG image unreachable (HTTP ${ogImageProbe.status || 'error'}).`;
+  } else if (ogImage && ogImageTooSmall && status === 'pass') {
+    status = 'warn';
+    message = `OG image too small (${ogImageWidth}×${ogImageHeight}); minimum recommended is 1200×630.`;
+  }
+
   return verdict(status, message, {
     og, twitter, ogImage, twitterImage,
-    ogImageWidth, ogImageHeight, hasOgImageDims,
+    ogImageWidth, ogImageHeight, hasOgImageDims, ogImageTooSmall,
+    ogImageReachable, ogImageProbeStatus,
   });
+}
+
+function parseRobotsDirectives(robotsContent) {
+  if (!robotsContent) return {};
+  const directives = {};
+  const knownDirectives = [
+    'max-snippet', 'max-image-preview', 'max-video-preview',
+    'noimageindex', 'noarchive', 'nositelinkssearchbox', 'notranslate',
+  ];
+  for (const part of robotsContent.toLowerCase().split(',')) {
+    const trimmed = part.trim();
+    for (const d of knownDirectives) {
+      if (trimmed === d) { directives[d] = true; break; }
+      if (trimmed.startsWith(d + ':') || trimmed.startsWith(d + ' :')) {
+        directives[d] = trimmed.replace(d, '').replace(/^\s*:\s*/, '').trim() || true;
+        break;
+      }
+    }
+  }
+  return directives;
 }
 
 function analyzeTechnical($) {
@@ -150,6 +209,7 @@ function analyzeTechnical($) {
   if (!charset) issues.push('charset');
   if (!lang) issues.push('html[lang]');
   const noindex = /noindex/i.test(robots);
+  const directives = parseRobotsDirectives(robots);
 
   let status = 'pass';
   let message = 'Technical meta tags present.';
@@ -161,7 +221,7 @@ function analyzeTechnical($) {
     message = `Missing: ${issues.join(', ')}.`;
   }
 
-  return verdict(status, message, { viewport, robots, charset, lang });
+  return verdict(status, message, { viewport, robots, charset, lang, directives });
 }
 
 function analyzeImages($) {
@@ -609,12 +669,27 @@ function analyzeFeeds($, finalUrl) {
 function countPlaceholderHrefs($) {
   let empty = 0;
   let hash = 0;
+  const fragments = [];
   $('a[href]').each((_, el) => {
     const raw = ($(el).attr('href') || '').trim();
     if (raw === '') empty++;
     else if (raw === '#') hash++;
+    else if (raw.startsWith('#')) fragments.push(raw.slice(1));
   });
-  return { empty, hash };
+  const pageIds = new Set();
+  $('[id]').each((_, el) => {
+    const id = ($(el).attr('id') || '').trim();
+    if (id) pageIds.add(id);
+  });
+  const brokenFragmentExamples = [];
+  let brokenFragments = 0;
+  for (const frag of fragments) {
+    if (!pageIds.has(frag)) {
+      brokenFragments++;
+      if (brokenFragmentExamples.length < 5) brokenFragmentExamples.push(`#${frag}`);
+    }
+  }
+  return { empty, hash, brokenFragments, brokenFragmentExamples };
 }
 
 function ancestorContext($, el) {
@@ -658,11 +733,12 @@ function collectLinks($, finalUrl) {
 
 function analyzeInternalLinks(links, placeholders) {
   const internals = links.filter((l) => l.internal);
-  if (internals.length === 0 && placeholders.empty + placeholders.hash === 0) {
+  if (internals.length === 0 && placeholders.empty + placeholders.hash === 0 && (placeholders.brokenFragments || 0) === 0) {
     return verdict('warn', 'No internal links found.', {
       total: 0, contextual: 0, navigational: 0, other: 0, nofollow: 0,
       topAnchors: [], generic: 0, genericExamples: [],
       placeholderEmpty: 0, placeholderHash: 0,
+      brokenFragments: 0, brokenFragmentExamples: [],
     });
   }
   const contextual = internals.filter((l) => l.context === 'contextual').length;
@@ -696,6 +772,9 @@ function analyzeInternalLinks(links, placeholders) {
   } else if (placeholderTotal > 0) {
     status = 'warn';
     message = `${placeholderTotal} placeholder href(s) detected (empty or "#"). Likely bugs.`;
+  } else if ((placeholders.brokenFragments || 0) > 0) {
+    status = 'warn';
+    message = `${placeholders.brokenFragments} broken anchor fragment(s) — the linked #id doesn't exist on this page.`;
   } else if (genericRatio > 0.3) {
     status = 'warn';
     message = `${generic} of ${internals.length} internal links use generic anchor text.`;
@@ -705,6 +784,8 @@ function analyzeInternalLinks(links, placeholders) {
     topAnchors, generic, genericExamples,
     placeholderEmpty: placeholders.empty,
     placeholderHash: placeholders.hash,
+    brokenFragments: placeholders.brokenFragments || 0,
+    brokenFragmentExamples: placeholders.brokenFragmentExamples || [],
   });
 }
 
@@ -1107,21 +1188,27 @@ module.exports = async (req, res) => {
   const links = collectLinks($, finalUrl);
   const placeholders = countPlaceholderHrefs($);
 
+  const ogImageMeta = ($('meta[property="og:image"]').attr('content') || '').trim();
+  const ogImageAbsUrl = ogImageMeta ? (safeUrl(ogImageMeta, finalUrl) || ogImageMeta) : '';
+
   const linkReachabilityPromise = analyzeLinkReachability(links);
   const imageReachabilityPromise = analyzeImageReachability($, finalUrl);
+  const ogImageProbePromise = ogImageAbsUrl ? probeLink(ogImageAbsUrl) : Promise.resolve(null);
   const robotsThenSitemapPromise = (async () => {
     const robots = await analyzeRobots(finalUrl);
     const sitemap = await analyzeSitemap(finalUrl, robots);
     return { robots, sitemap };
   })();
 
-  const [linkReachability, imageReachability, { robots, sitemap }] = await Promise.all([
+  const [linkReachability, imageReachability, ogImageProbe, { robots, sitemap }] = await Promise.all([
     linkReachabilityPromise,
     imageReachabilityPromise,
+    ogImageProbePromise,
     robotsThenSitemapPromise,
   ]);
 
   const isHttps = finalUrl.startsWith('https://');
+  const titleResult = analyzeTitle($);
 
   const checks = {
     httpHeaders: analyzeHttpHeaders(pageRes.headers, isHttps),
@@ -1129,13 +1216,13 @@ module.exports = async (req, res) => {
     redirectChain: analyzeRedirectChain(redirectChain, finalUrl),
     pageWeight: analyzePageWeight(html, pageRes.headers),
     performance: analyzePerformance($),
-    title: analyzeTitle($),
+    title: titleResult,
     description: analyzeDescription($),
     canonical: analyzeCanonical($, finalUrl),
-    headings: analyzeHeadings($),
+    headings: analyzeHeadings($, titleResult.value.text),
     content: analyzeContent($, html.length),
     urlStructure: analyzeUrlStructure(finalUrl),
-    social: analyzeSocial($, finalUrl),
+    social: analyzeSocial($, finalUrl, ogImageProbe),
     structuredData: analyzeStructuredData($),
     hreflang: analyzeHreflang($, finalUrl),
     technical: analyzeTechnical($),
